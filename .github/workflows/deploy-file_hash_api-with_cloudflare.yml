@@ -1,0 +1,81 @@
+name: Expose API via Cloudflare Tunnel with Auto-Restart
+
+on:
+  schedule:
+    - cron: '0 */5 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: "cloudflare-tunnel"
+  cancel-in-progress: true
+
+jobs:
+  expose-api:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi uvicorn python-multipart
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget tar jq
+
+      - name: Start API Server in background
+        run: |
+          nohup python main/file_hash_api_server.py &
+          echo "Waiting for API server to start..."
+          sleep 5
+
+      - name: Download cloudflared
+        run: |
+          wget -qO cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          sudo mv cloudflared /usr/local/bin/
+
+      - name: Set up Cloudflare Tunnel credentials
+        run: |
+          mkdir -p $HOME/.cloudflared
+          echo "${{ secrets.CLOUDFLARED_CREDS }}" | base64 -d > $HOME/.cloudflared/credentials.json
+
+      - name: Create Cloudflare Tunnel config file
+        run: |
+          mkdir -p $HOME/.cloudflared
+          cat <<EOF > $HOME/.cloudflared/config.yml
+tunnel: ${{ secrets.TUNNEL_NAME }}
+credentials-file: $HOME/.cloudflared/credentials.json
+
+ingress:
+  - hostname: ${{ secrets.TUNNEL_HOSTNAME }}
+    service: http://localhost:8000
+  - service: http_status:404
+EOF
+
+  - name: Start Cloudflare Tunnel
+    run: |
+      nohup cloudflared tunnel run ${{ secrets.TUNNEL_NAME }} > cloudflared.log 2>&1 &
+      echo "Waiting for Cloudflare Tunnel to be established..."
+      sleep 30
+
+  - name: Display tunnel status and URL
+    run: |
+      echo "Cloudflare Tunnel is running. You can access your API at: ${{ secrets.TUNNEL_HOSTNAME }}"
+      echo "Cloudflare Tunnel log:"
+      cat cloudflared.log
+
+  - name: Keep job alive until canceled
+    run: |
+      echo "API server and Cloudflare Tunnel are running. Access at ${{ secrets.TUNNEL_HOSTNAME }}."
+      while true; do
+        sleep 60
+      done
