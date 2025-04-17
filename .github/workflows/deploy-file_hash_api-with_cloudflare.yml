@@ -1,12 +1,12 @@
-name: Expose API via Cloudflare Tunnel (TOKEN mode)
+name: Expose API via Cloudflare Tunnel (TOKEN mode)
 
 on:
-  schedule:
-    - cron: '0 */5 * * *'   # 每 5 小时刷新
+  schedule:               # 每 5 小时刷新一次（UTC 0 / 5 / 10 / 15 / 20）
+    - cron: '0 */5 * * *'
   workflow_dispatch:
 
 concurrency:
-  group: cloudflare‑tunnel
+  group: cloudflare-tunnel
   cancel-in-progress: true
 
 jobs:
@@ -14,55 +14,62 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # ───────── 1. 代码 & 依赖 ─────────
-    - uses: actions/checkout@v3
+      # ───────── 1. 代码 & 依赖 ─────────
+      - uses: actions/checkout@v3
 
-    - uses: actions/setup-python@v4
-      with: { python-version: '3.11' }
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
-    - name: Install deps
-      run: |
-        python -m pip install -U pip
-        pip install fastapi uvicorn python-multipart
+      - name: Install deps
+        run: |
+          python -m pip install -U pip
+          pip install fastapi uvicorn python-multipart
 
-    # ───────── 2. 启动 FastAPI（脚本自带 PYTHONPATH） ─────────
-    - name: Start API server
-      run: |
-        nohup python main/file_hash_api_server.py &
+      # ───────── 2. 启动 FastAPI（脚本自带 PYTHONPATH） ─────────
+      - name: Start API server
+        run: |
+          nohup python main/file_hash_api_server.py &
 
-        echo "⏳ wait api…"
-        for i in {1..10}; do
-          if curl -fs http://localhost:8000/ | grep -q 文件哈希计算服务API; then
-            echo "✅ local api ok"; break; fi
-          sleep 3
-          [ $i -eq 10 ] && { echo "❌ api fail"; exit 1; }
-        done
+          echo "⏳ wait api…"
+          for i in {1..10}; do
+            if curl -fs http://localhost:8000/ | grep -q 文件哈希计算服务API; then
+              echo "✅ local api ok"; break
+            fi
+            sleep 3
+            if [ $i -eq 10 ]; then
+              echo "❌ api fail"; exit 1
+            fi
+          done
 
-    # ───────── 3. 安装 cloudflared ─────────
-    - name: Install cloudflared
-      run: |
-        wget -qO cloudflared \
-          https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-        chmod +x cloudflared && sudo mv cloudflared /usr/local/bin/
+      # ───────── 3. 安装 cloudflared ─────────
+      - name: Install cloudflared
+        run: |
+          wget -qO cloudflared \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          sudo mv cloudflared /usr/local/bin/
 
-    # ───────── 4. 启动隧道 (TOKEN) ─────────
-    - name: Run Cloudflare Tunnel
-      env: { RAW_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN }} }
-      run: |
-        TOKEN=$(echo "$RAW_TOKEN" | tr -d '\r\n' | xargs)
-        [ -z "$TOKEN" ] && { echo "❌ empty token"; exit 1; }
+      # ───────── 4. 启动隧道 (TOKEN) ─────────
+      - name: Run Cloudflare Tunnel
+        env:
+          RAW_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN }}
+        run: |
+          TOKEN=$(echo "$RAW_TOKEN" | tr -d '\r\n' | xargs)
+          [ -z "$TOKEN" ] && { echo "❌ empty token"; exit 1; }
 
-        nohup cloudflared tunnel run --no-autoupdate \
-              --token "$TOKEN" > cloudflared.log 2>&1 &
+          nohup cloudflared tunnel run --no-autoupdate \
+                --token "$TOKEN" > cloudflared.log 2>&1 &
 
-        sleep 10
-        pgrep -f "cloudflared tunnel run" \
-          || { echo "❌ cloudflared exited"; cat cloudflared.log; exit 1; }
-        echo "✅ tunnel up → https://${{ secrets.TUNNEL_HOSTNAME }}/"
+          sleep 10
+          if ! pgrep -f "cloudflared tunnel run" > /dev/null; then
+            echo "❌ cloudflared exited"; cat cloudflared.log; exit 1
+          fi
+          echo "✅ tunnel up → https://${{ secrets.TUNNEL_HOSTNAME }}/"
 
-    # ───────── 5. 保持在线 ─────────
-    - name: Keep alive
-      run: |
-        echo "🌐 api url: https://${{ secrets.TUNNEL_HOSTNAME }}/"
-        tail -F cloudflared.log &
-        while sleep 300; do :; done
+      # ───────── 5. 保持在线 ─────────
+      - name: Keep alive
+        run: |
+          echo "🌐 api url: https://${{ secrets.TUNNEL_HOSTNAME }}/"
+          tail -F cloudflared.log &
+          while sleep 300; do :; done
