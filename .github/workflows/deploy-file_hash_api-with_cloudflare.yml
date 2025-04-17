@@ -1,8 +1,8 @@
-name: Expose API via Cloudflare Tunnel (token mode)
+name: Expose API via Cloudflare Tunnel (TOKEN mode)
 
 on:
   schedule:
-    # ‑ 每 5 小时自动重启一次，绕过 GitHub runner 最长 6h 限制
+    # 每 5 小时刷新一次（UTC 0 / 5 / 10 / 15 / 20）
     - cron: '0 */5 * * *'
   workflow_dispatch:
 
@@ -15,61 +15,72 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # ─────────────────────────────────────────────────────────────
-    # 1. 获取代码 & Python 依赖
-    # ─────────────────────────────────────────────────────────────
+    # ─────────────────────────── 1. 拉仓库 & Python ───────────────────────────
     - name: Checkout repository
       uses: actions/checkout@v3
 
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11'           # 可改成 3.9+
+        python-version: '3.11'
 
-    - name: Install Python dependencies
+    - name: Install Python deps
       run: |
         python -m pip install -U pip
         pip install fastapi uvicorn python-multipart
 
-    # ─────────────────────────────────────────────────────────────
-    # 2. 启动 FastAPI（后台）
-    # ─────────────────────────────────────────────────────────────
-    - name: Start API server
+    # ─────────────────────────── 2. 启动 FastAPI ──────────────────────────────
+    - name: Start API server (FastAPI)
       run: |
-        nohup python main/file_hash_api_server.py &
-        echo "⏳ Waiting for API server to boot…"
-        sleep 5
+        cd main
+        nohup uvicorn src.api.file_hash_api:app \
+              --host 0.0.0.0 --port 8000 --log-level info &
 
-    # ─────────────────────────────────────────────────────────────
-    # 3. 安装 cloudflared（Linux 版）
-    # ─────────────────────────────────────────────────────────────
-    - name: Download cloudflared
+        echo "⏳ Waiting for API to come up…"
+        for i in {1..10}; do
+          if curl -s http://localhost:8000/ | grep -q 文件哈希计算服务API; then
+            echo "✅ Local API is healthy"; break
+          fi
+          sleep 3
+          if [ $i -eq 10 ]; then
+            echo "❌ API failed to start"; exit 1
+          fi
+        done
+
+    # ─────────────────────────── 3. cloudflared ──────────────────────────────
+    - name: Install cloudflared
       run: |
         wget -qO cloudflared \
-             https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
         chmod +x cloudflared
         sudo mv cloudflared /usr/local/bin/
 
-    # ─────────────────────────────────────────────────────────────
-    # 4. 使用 **TOKEN 模式** 启动隧道
-    # ─────────────────────────────────────────────────────────────
-    - name: Run Cloudflare Tunnel
+    - name: Run Cloudflare Tunnel (TOKEN mode)
       env:
-        CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN }}
+        RAW_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN }}
       run: |
-        nohup cloudflared tunnel run \
-              --no-autoupdate \
-              --token "$CF_TUNNEL_TOKEN" \
-              > cloudflared.log 2>&1 &
-        echo "⏳ Waiting for Cloudflare Tunnel to establish…"
-        sleep 15
-        echo "✅ Tunnel established. Public URL → ${{ secrets.TUNNEL_HOSTNAME }}"
+        # 清理换行／空格，避免 “help page” 错误
+        TOKEN=$(echo "$RAW_TOKEN" | tr -d '\n\r' | xargs)
+        [ -z "$TOKEN" ] && { echo "❌ CF_TUNNEL_TOKEN is empty"; exit 1; }
 
-    # ─────────────────────────────────────────────────────────────
-    # 5. 保持 runner 存活
-    # ─────────────────────────────────────────────────────────────
-    - name: Keep job alive
+        nohup cloudflared tunnel run --no-autoupdate \
+              --token "$TOKEN" > cloudflared.log 2>&1 &
+
+        echo "⏳ Waiting for tunnel to establish…"
+        sleep 10
+
+        # 若 cloudflared 已退出则打印日志并失败
+        if ! pgrep -f "cloudflared tunnel run" > /dev/null; then
+          echo "❌ cloudflared exited unexpectedly:"
+          cat cloudflared.log
+          exit 1
+        fi
+        echo "✅ Tunnel up → https://${{ secrets.TUNNEL_HOSTNAME }}/"
+
+    # ─────────────────────────── 4. 挂起保持在线 ──────────────────────────────
+    - name: Keep runner alive
       run: |
-        echo "🌐 API available at: https://${{ secrets.TUNNEL_HOSTNAME }}/"
+        echo "🌐 API public URL: https://${{ secrets.TUNNEL_HOSTNAME }}/"
+        # 输出 cloudflared 日志，方便排障
         tail -F cloudflared.log &
         while true; do sleep 300; done
