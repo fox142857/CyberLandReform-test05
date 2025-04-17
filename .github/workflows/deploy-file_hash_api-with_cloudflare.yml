@@ -56,16 +56,22 @@ jobs:
           RAW_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN }}
         run: |
           TOKEN=$(echo "$RAW_TOKEN" | tr -d '\r\n' | xargs)
-          [ -z "$TOKEN" ] && { echo "❌ empty token"; exit 1; }
+          [ -z "$TOKEN" ] && { echo "❌ CF_TUNNEL_TOKEN is empty"; exit 1; }
 
+          # 后台启动并记录 PID
           nohup cloudflared --no-autoupdate tunnel run \
                 --token "$TOKEN" > cloudflared.log 2>&1 &
+          CF_PID=$!
 
+          echo "⏳ waiting for tunnel to establish…"
           sleep 10
-          if ! pgrep -f "cloudflared tunnel run" > /dev/null; then
+
+          # 用 kill ‑0 测试进程是否仍在
+          if ! kill -0 "$CF_PID" 2>/dev/null; then
             echo "❌ cloudflared exited"; cat cloudflared.log; exit 1
           fi
           echo "✅ tunnel up → https://${{ secrets.TUNNEL_HOSTNAME }}/"
+
 
       # ───────── 5. 保持在线 ─────────
       - name: Keep alive
