@@ -58,7 +58,7 @@ jobs:
           TOKEN=$(echo "$RAW_TOKEN" | tr -d '\r\n' | xargs)
           [ -z "$TOKEN" ] && { echo "❌ empty token"; exit 1; }
 
-          nohup cloudflared tunnel run --no-autoupdate \
+          nohup cloudflared --no-autoupdate tunnel run \
                 --token "$TOKEN" > cloudflared.log 2>&1 &
 
           sleep 10
