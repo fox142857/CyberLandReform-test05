@@ -14,10 +14,10 @@ jobs:
         env:
           REPO: ${{ github.repository }}
         run: |
-          echo "Querying latest deploy workflow run for file: deploy-file_hash_api-with_ngrok.yml ..."
+          echo "Querying latest deploy workflow run for file: deploy-file_hash_api-with_cloudflare.yml ..."
           RESPONSE=$(curl -s -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
-            "https://api.github.com/repos/${REPO}/actions/workflows/deploy-file_hash_api-with_ngrok.yml/runs?per_page=1")
+            "https://api.github.com/repos/${REPO}/actions/workflows/deploy-file_hash_api-with_cloudflare.yml/runs?per_page=1")
           STATUS=$(echo "$RESPONSE" | jq -r '.workflow_runs[0].status')
           CONCLUSION=$(echo "$RESPONSE" | jq -r '.workflow_runs[0].conclusion')
           HTML_URL=$(echo "$RESPONSE" | jq -r '.workflow_runs[0].html_url')
@@ -44,7 +44,7 @@ jobs:
           subject: "Workflow Alert: Deploy Workflow Status - ${{ env.STATUS }} / ${{ env.CONCLUSION }}"
           body: |
             Repository: ${{ github.repository }}
-            Workflow: deploy-file_hash_api-with_ngrok.yml
+            Workflow: deploy-file_hash_api-with_cloudflare.yml
             Latest run status: ${{ env.STATUS }}
             Latest run conclusion: ${{ env.CONCLUSION }}
             Details: ${{ env.HTML_URL }}
