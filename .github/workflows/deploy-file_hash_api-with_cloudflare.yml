@@ -36,7 +36,7 @@ jobs:
           export TUNNEL_TOKEN="${{ secrets.CF_INSTALL_TOKEN }}"
           mkdir -p ~/.cloudflared
           # 通过 refresh token 登录，仅写入 ~/.cloudflared/<TUNNEL_ID>.json
-          cloudflared tunnel login --token "$TUNNEL_TOKEN"
+          cloudflared tunnel login --token ${{ secrets.CF_INSTALL_TOKEN }}
 
       - name: Write Cloudflared config
         run: |
