@@ -47,9 +47,9 @@ jobs:
             - hostname: ${{ env.HOSTNAME }}
               path: /api/v1/hash/*
               service: http://localhost:8000
-            # 放行根路径和其它所有请求
+            # 放行根路径
             - hostname: ${{ env.HOSTNAME }}
-              path: /*
+              path: /
               service: http://localhost:8000
             # 如果都不匹配，返回 404
             - service: http_status:404
