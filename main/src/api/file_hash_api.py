@@ -71,7 +71,7 @@ class BatchTaskResults(BaseModel):
 
 # API路由
 
-@app.get("/")
+@app.get("/api/v1/hash")
 async def root():
     return {"message": "文件哈希计算服务API"}
 
