@@ -1,81 +1,93 @@
-name: Expose API via Cloudflare Tunnel (TOKEN mode)
+name: Expose File‑Hash API via Cloudflare Tunnel
 
 on:
-  schedule:               # 每 5 小时刷新一次（UTC 0 / 5 / 10 / 15 / 20）
+  schedule:
+    # 每 5 小时的整点触发
     - cron: '0 */5 * * *'
   workflow_dispatch:
-
-concurrency:
-  group: cloudflare-tunnel
-  cancel-in-progress: true
 
 jobs:
   expose-api:
     runs-on: ubuntu-latest
-
+    env:
+      HOSTNAME: ${{ secrets.CLOUDFLARE_HOSTNAME }}
+      TUNNEL_ID: ${{ secrets.CLOUDFLARE_TUNNEL_ID }}
     steps:
-      # ───────── 1. 代码 & 依赖 ─────────
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      - uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: '3.9'
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
-          python -m pip install -U pip
+          python -m pip install --upgrade pip
           pip install fastapi uvicorn python-multipart
 
-      # ───────── 2. 启动 FastAPI（脚本自带 PYTHONPATH） ─────────
-      - name: Start API server
+      - name: Install system packages & Cloudflared
         run: |
-          nohup python main/file_hash_api_server.py &
-
-          echo "⏳ wait api…"
-          for i in {1..10}; do
-            if curl -fs http://localhost:8000/ | grep -q 文件哈希计算服务API; then
-              echo "✅ local api ok"; break
-            fi
-            sleep 3
-            if [ $i -eq 10 ]; then
-              echo "❌ api fail"; exit 1
-            fi
-          done
-
-      # ───────── 3. 安装 cloudflared ─────────
-      - name: Install cloudflared
-        run: |
-          wget -qO cloudflared \
-            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-          chmod +x cloudflared
+          sudo apt-get update
+          sudo apt-get install -y wget tar jq
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.tgz -O cf.tgz
+          tar -xzf cf.tgz
           sudo mv cloudflared /usr/local/bin/
 
-      # ───────── 4. 启动隧道 (TOKEN) ─────────
+      - name: Install tunnel credentials via refresh token
+        run: |
+          mkdir -p ~/.cloudflared
+          cloudflared service install ${{ secrets.CF_INSTALL_TOKEN }}
+
+      - name: Write Cloudflared config
+        run: |
+          cat << EOF > ~/.cloudflared/config.yml
+          tunnel: ${{ env.TUNNEL_ID }}
+          credentials-file: ~/.cloudflared/${{ env.TUNNEL_ID }}.json
+
+          ingress:
+            - hostname: ${{ env.HOSTNAME }}
+              service: http://localhost:8000
+            - service: http_status:404
+          EOF
+
+      - name: Start FastAPI server in background
+        run: |
+          nohup python main/file_hash_api_server.py & sleep 5
+
       - name: Run Cloudflare Tunnel
+        run: |
+          nohup cloudflared tunnel run ${{ env.TUNNEL_ID }} & sleep 5
+
+      - name: Wait for new API to be healthy
+        run: |
+          echo "Waiting for API on https://${{ env.HOSTNAME }}/api/v1/hash/algorithms ..."
+          retries=0
+          until [[ "$(curl -s -o /dev/null -w '%{http_code}' https://${{ env.HOSTNAME }}/api/v1/hash/algorithms)" == "200" ]]; do
+            ((retries++))
+            if [ $retries -ge 12 ]; then
+              echo "⏱ Timeout waiting for API"; exit 1
+            fi
+            sleep 5
+          done
+          echo "✅ New API is healthy."
+
+      - name: Cancel previous workflow run
         env:
-          RAW_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
-          TOKEN=$(echo "$RAW_TOKEN" | tr -d '\r\n' | xargs)
-          [ -z "$TOKEN" ] && { echo "❌ CF_TUNNEL_TOKEN is empty"; exit 1; }
+          echo "Fetching last 2 runs of this workflow..."
+          PREV_ID=$(curl -s \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+            "https://api.github.com/repos/$REPO/actions/workflows/deploy-file_hash_api-with_cloudflare.yml/runs?per_page=2" \
+            | jq -r '.workflow_runs[1].id')
+          echo "Canceling previous run: $PREV_ID"
+          curl -X POST -s \
+            -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+            "https://api.github.com/repos/$REPO/actions/runs/$PREV_ID/cancel"
 
-          # 后台启动并记录 PID
-          nohup cloudflared --no-autoupdate tunnel run \
-                --token "$TOKEN" > cloudflared.log 2>&1 &
-          CF_PID=$!
-
-          echo "⏳ waiting for tunnel to establish…"
-          sleep 10
-
-          # 用 kill ‑0 测试进程是否仍在
-          if ! kill -0 "$CF_PID" 2>/dev/null; then
-            echo "❌ cloudflared exited"; cat cloudflared.log; exit 1
-          fi
-          echo "✅ tunnel up → https://${{ secrets.TUNNEL_HOSTNAME }}/"
-
-
-      # ───────── 5. 保持在线 ─────────
-      - name: Keep alive
+      - name: Keep runner alive
         run: |
-          echo "🌐 api url: https://${{ secrets.TUNNEL_HOSTNAME }}/"
-          tail -F cloudflared.log &
-          while sleep 300; do :; done
+          echo "Tunnel and API are up! Access via https://${{ env.HOSTNAME }}"
+          while true; do sleep 60; done
