@@ -3,6 +3,9 @@
 这是一个基于FastAPI实现的文件哈希计算服务，提供以下功能：
 
 - 计算上传文件的哈希值
+- 批量计算多个上传文件的哈希值
+- 异步批量处理上传文件的哈希计算
+- 验证上传文件的哈希值是否与预期值匹配
 - 计算服务器上指定路径文件的哈希值
 - 批量计算目录中文件的哈希值
 - 获取支持的哈希算法列表
@@ -25,6 +28,11 @@ python file_hash_api_server.py
 
 - `GET /`: 欢迎信息
 - `POST /api/v1/hash/file`: 计算上传文件的哈希值
+- `POST /api/v1/hash/files`: 批量计算多个上传文件的哈希值
+- `POST /api/v1/hash/verify`: 验证上传文件的哈希值是否与预期值匹配
+- `POST /api/v1/hash/upload/batch`: 异步批量处理上传文件并计算哈希值
+- `GET /api/v1/hash/upload/batch/{task_id}`: 获取上传文件批处理任务的状态
+- `GET /api/v1/hash/upload/batch/{task_id}/results`: 获取上传文件批处理任务的结果
 - `GET /api/v1/hash/algorithms`: 获取支持的哈希算法列表
 - `POST /api/v1/hash/path`: 计算指定路径文件的哈希值
 - `POST /api/v1/hash/batch`: 异步处理目录中的文件
