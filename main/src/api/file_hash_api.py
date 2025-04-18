@@ -23,8 +23,36 @@ from utils.file_hash_direct import FileHashCalculator
 # 创建FastAPI应用
 app = FastAPI(
     title="文件哈希服务API",
-    description="提供文件哈希计算服务的RESTful API",
-    version="1.0.0"
+    description="提供文件哈希计算服务的RESTful API，支持单文件/多文件哈希计算、同步/异步处理、本地文件/上传文件处理，以及哈希验证功能。",
+    version="1.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_tags=[
+        {
+            "name": "基础信息",
+            "description": "基础API信息"
+        },
+        {
+            "name": "单文件处理",
+            "description": "处理单个文件的哈希计算"
+        },
+        {
+            "name": "批量文件处理",
+            "description": "批量处理多个文件的哈希计算"
+        },
+        {
+            "name": "异步处理",
+            "description": "异步批量处理文件哈希计算任务"
+        },
+        {
+            "name": "哈希验证",
+            "description": "验证文件哈希值"
+        },
+        {
+            "name": "服务器文件处理",
+            "description": "处理服务器上的文件"
+        }
+    ]
 )
 
 # 存储异步任务信息
@@ -137,18 +165,51 @@ class BatchVerifyResponse(BaseModel):
 
 # API路由
 
-@app.get("/api/v1/hash")
+@app.get("/api/v1/hash", tags=["基础信息"])
 async def root():
+    """
+    ### 文件哈希计算服务API根端点
+    
+    返回服务的欢迎信息。
+    
+    **返回示例:**
+    ```json
+    {
+        "message": "文件哈希计算服务API"
+    }
+    ```
+    """
     return {"message": "文件哈希计算服务API"}
 
-@app.post("/api/v1/hash/file", response_model=HashResponse)
+@app.post("/api/v1/hash/file", response_model=HashResponse, tags=["单文件处理"])
 async def hash_file(
     file: UploadFile = File(...),
     algorithm: str = Form("sha256"),
     chunk_size: int = Form(4096)
 ):
     """
-    计算上传文件的哈希值
+    ### 计算上传文件的哈希值
+    
+    通过上传单个文件，计算其哈希值。支持多种哈希算法。
+    
+    **参数说明:**
+    - **file**: 要计算哈希值的文件
+    - **algorithm**: 使用的哈希算法，默认为sha256
+    - **chunk_size**: 读取文件时的块大小（字节），默认为4096
+    
+    **返回示例:**
+    ```json
+    {
+        "file_name": "example.txt",
+        "algorithm": "sha256",
+        "hash_value": "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
+        "processing_time": 0.0234
+    }
+    ```
+    
+    **可能的错误:**
+    - **400**: 不支持的哈希算法
+    - **500**: 处理文件时出错
     """
     if algorithm not in hashlib.algorithms_available:
         raise HTTPException(status_code=400, detail=f"不支持的哈希算法: {algorithm}")
@@ -180,14 +241,48 @@ async def hash_file(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"处理文件时出错: {str(e)}")
 
-@app.post("/api/v1/hash/files", response_model=BatchFileHashResponse)
+@app.post("/api/v1/hash/files", response_model=BatchFileHashResponse, tags=["批量文件处理"])
 async def hash_multiple_files(
     files: List[UploadFile] = File(...),
     algorithm: str = Form("sha256"),
     chunk_size: int = Form(4096)
 ):
     """
-    批量计算多个上传文件的哈希值
+    ### 批量计算多个上传文件的哈希值
+    
+    同时上传多个文件，同步计算它们的哈希值，并返回结果。适用于处理少量文件。
+    
+    **参数说明:**
+    - **files**: 要计算哈希值的文件列表
+    - **algorithm**: 使用的哈希算法，默认为sha256
+    - **chunk_size**: 读取文件时的块大小（字节），默认为4096
+    
+    **返回示例:**
+    ```json
+    {
+        "results": [
+            {
+                "file_name": "example1.txt",
+                "algorithm": "sha256",
+                "hash_value": "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
+                "processing_time": 0.0134
+            },
+            {
+                "file_name": "example2.txt",
+                "algorithm": "sha256",
+                "hash_value": "b591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146f",
+                "processing_time": 0.0157
+            }
+        ],
+        "total_files": 2,
+        "success_count": 2,
+        "error_count": 0,
+        "total_processing_time": 0.0291
+    }
+    ```
+    
+    **可能的错误:**
+    - **400**: 不支持的哈希算法
     """
     if algorithm not in hashlib.algorithms_available:
         raise HTTPException(status_code=400, detail=f"不支持的哈希算法: {algorithm}")
@@ -243,21 +338,65 @@ async def hash_multiple_files(
         total_processing_time=round(total_processing_time, 4)
     )
 
-@app.get("/api/v1/hash/algorithms", response_model=AlgorithmsResponse)
+@app.get("/api/v1/hash/algorithms", response_model=AlgorithmsResponse, tags=["基础信息"])
 async def get_algorithms():
     """
-    获取支持的哈希算法列表
+    ### 获取支持的哈希算法列表
+    
+    返回系统支持的所有哈希算法列表。
+    
+    **返回示例:**
+    ```json
+    {
+        "algorithms": [
+            "blake2b",
+            "blake2s",
+            "md5",
+            "sha1",
+            "sha224",
+            "sha256",
+            "sha384",
+            "sha3_224",
+            "sha3_256",
+            "sha3_384",
+            "sha3_512",
+            "sha512"
+        ]
+    }
+    ```
     """
     return AlgorithmsResponse(algorithms=sorted(list(hashlib.algorithms_available)))
 
-@app.post("/api/v1/hash/path", response_model=HashResponse)
+@app.post("/api/v1/hash/path", response_model=HashResponse, tags=["服务器文件处理"])
 async def hash_file_path(
     file_path: str = Form(...),
     algorithm: str = Form("sha256"),
     chunk_size: int = Form(4096)
 ):
     """
-    计算指定路径文件的哈希值
+    ### 计算指定路径文件的哈希值
+    
+    计算服务器上指定路径文件的哈希值。
+    
+    **参数说明:**
+    - **file_path**: 服务器上文件的完整路径
+    - **algorithm**: 使用的哈希算法，默认为sha256
+    - **chunk_size**: 读取文件时的块大小（字节），默认为4096
+    
+    **返回示例:**
+    ```json
+    {
+        "file_name": "example.txt",
+        "algorithm": "sha256",
+        "hash_value": "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
+        "processing_time": 0.0234
+    }
+    ```
+    
+    **可能的错误:**
+    - **400**: 不支持的哈希算法
+    - **404**: 文件不存在
+    - **500**: 处理文件时出错
     """
     if algorithm not in hashlib.algorithms_available:
         raise HTTPException(status_code=400, detail=f"不支持的哈希算法: {algorithm}")
@@ -343,10 +482,35 @@ def process_directory(task_id: str, directory: str, recursive: bool, algorithm: 
         task["status"] = "failed"
         task["error"] = str(e)
 
-@app.post("/api/v1/hash/batch", response_model=BatchTaskResponse)
+@app.post("/api/v1/hash/batch", response_model=BatchTaskResponse, tags=["异步处理", "服务器文件处理"])
 async def batch_hash_files(request: BatchTaskRequest, background_tasks: BackgroundTasks):
     """
-    异步处理目录中的文件
+    ### 异步处理目录中的文件
+    
+    异步计算服务器上指定目录中的所有文件的哈希值。适用于处理大量文件，避免请求超时。
+    
+    **参数说明:**
+    - **directory**: 服务器上的目录路径
+    - **recursive**: 是否递归处理子目录，默认为false
+    - **algorithm**: 使用的哈希算法，默认为sha256
+    
+    **返回示例:**
+    ```json
+    {
+        "task_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "status": "pending",
+        "directory": "/path/to/directory",
+        "created_at": "2023-09-29T14:35:21Z"
+    }
+    ```
+    
+    **可能的错误:**
+    - **404**: 目录不存在
+    
+    **使用流程:**
+    1. 调用此API创建批处理任务
+    2. 使用返回的task_id查询任务状态
+    3. 当任务完成后，获取任务结果
     """
     if not os.path.isdir(request.directory):
         raise HTTPException(status_code=404, detail=f"目录不存在: {request.directory}")
@@ -381,10 +545,33 @@ async def batch_hash_files(request: BatchTaskRequest, background_tasks: Backgrou
         created_at=created_at
     )
 
-@app.get("/api/v1/hash/batch/{task_id}", response_model=BatchTaskStatus)
+@app.get("/api/v1/hash/batch/{task_id}", response_model=BatchTaskStatus, tags=["异步处理", "服务器文件处理"])
 async def get_batch_status(task_id: str):
     """
-    获取批处理任务的状态
+    ### 获取批处理任务的状态
+    
+    查询服务器目录批处理任务的当前状态和进度。
+    
+    **参数说明:**
+    - **task_id**: 批处理任务的ID
+    
+    **返回示例:**
+    ```json
+    {
+        "task_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "status": "processing",
+        "directory": "/path/to/directory",
+        "created_at": "2023-09-29T14:35:21Z",
+        "completed_at": null,
+        "total_files": 100,
+        "processed_files": 45,
+        "success_count": 44,
+        "error_count": 1
+    }
+    ```
+    
+    **可能的错误:**
+    - **404**: 任务未找到
     """
     if task_id not in batch_tasks:
         raise HTTPException(status_code=404, detail=f"任务未找到: {task_id}")
@@ -403,10 +590,44 @@ async def get_batch_status(task_id: str):
         error_count=task.get("error_count")
     )
 
-@app.get("/api/v1/hash/batch/{task_id}/results", response_model=BatchTaskResults)
+@app.get("/api/v1/hash/batch/{task_id}/results", response_model=BatchTaskResults, tags=["异步处理", "服务器文件处理"])
 async def get_batch_results(task_id: str):
     """
-    获取批处理任务的结果
+    ### 获取批处理任务的结果
+    
+    获取已完成的服务器目录批处理任务的详细结果。
+    
+    **参数说明:**
+    - **task_id**: 批处理任务的ID
+    
+    **返回示例:**
+    ```json
+    {
+        "task_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "directory": "/path/to/directory",
+        "results": [
+            {
+                "file_path": "/path/to/directory/file1.txt",
+                "algorithm": "sha256",
+                "hash_value": "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
+                "status": "success",
+                "error_message": null
+            },
+            {
+                "file_path": "/path/to/directory/file2.txt",
+                "algorithm": "sha256",
+                "hash_value": "b591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146f",
+                "status": "success",
+                "error_message": null
+            }
+        ]
+    }
+    ```
+    
+    **可能的错误:**
+    - **404**: 任务未找到
+    - **400**: 任务尚未完成
+    - **500**: 任务结果不可用
     """
     if task_id not in batch_tasks:
         raise HTTPException(status_code=404, detail=f"任务未找到: {task_id}")
@@ -485,7 +706,7 @@ async def process_uploaded_files(task_id: str, files_data: List[Dict], algorithm
         task["status"] = "failed"
         task["error"] = str(e)
 
-@app.post("/api/v1/hash/upload/batch", response_model=AsyncUploadHashResponse)
+@app.post("/api/v1/hash/upload/batch", response_model=AsyncUploadHashResponse, tags=["异步处理", "批量文件处理"])
 async def batch_hash_uploaded_files(
     files: List[UploadFile] = File(...),
     algorithm: str = Form("sha256"),
@@ -493,7 +714,32 @@ async def batch_hash_uploaded_files(
     background_tasks: BackgroundTasks = BackgroundTasks()
 ):
     """
-    异步批量处理上传的文件并计算哈希值
+    ### 异步批量处理上传的文件并计算哈希值
+    
+    异步计算多个上传文件的哈希值。适用于处理大量或大体积文件，避免请求超时。
+    
+    **参数说明:**
+    - **files**: 要计算哈希值的文件列表
+    - **algorithm**: 使用的哈希算法，默认为sha256
+    - **chunk_size**: 读取文件时的块大小（字节），默认为4096
+    
+    **返回示例:**
+    ```json
+    {
+        "task_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "status": "pending",
+        "created_at": "2023-09-29T14:35:21Z",
+        "file_count": 5
+    }
+    ```
+    
+    **可能的错误:**
+    - **400**: 不支持的哈希算法
+    
+    **使用流程:**
+    1. 调用此API上传文件并创建批处理任务
+    2. 使用返回的task_id查询任务状态
+    3. 当任务完成后，获取任务结果
     """
     if algorithm not in hashlib.algorithms_available:
         raise HTTPException(status_code=400, detail=f"不支持的哈希算法: {algorithm}")
@@ -541,10 +787,32 @@ async def batch_hash_uploaded_files(
         file_count=len(files)
     )
 
-@app.get("/api/v1/hash/upload/batch/{task_id}", response_model=AsyncUploadHashStatus)
+@app.get("/api/v1/hash/upload/batch/{task_id}", response_model=AsyncUploadHashStatus, tags=["异步处理", "批量文件处理"])
 async def get_upload_batch_status(task_id: str):
     """
-    获取上传文件批处理任务的状态
+    ### 获取上传文件批处理任务的状态
+    
+    查询上传文件批处理任务的当前状态和进度。
+    
+    **参数说明:**
+    - **task_id**: 批处理任务的ID
+    
+    **返回示例:**
+    ```json
+    {
+        "task_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "status": "processing",
+        "created_at": "2023-09-29T14:35:21Z",
+        "file_count": 5,
+        "completed_at": null,
+        "processed_files": 3,
+        "success_count": 3,
+        "error_count": 0
+    }
+    ```
+    
+    **可能的错误:**
+    - **404**: 任务未找到
     """
     if task_id not in upload_batch_tasks:
         raise HTTPException(status_code=404, detail=f"任务未找到: {task_id}")
@@ -562,10 +830,49 @@ async def get_upload_batch_status(task_id: str):
         error_count=task.get("error_count")
     )
 
-@app.get("/api/v1/hash/upload/batch/{task_id}/results", response_model=AsyncUploadHashResults)
+@app.get("/api/v1/hash/upload/batch/{task_id}/results", response_model=AsyncUploadHashResults, tags=["异步处理", "批量文件处理"])
 async def get_upload_batch_results(task_id: str):
     """
-    获取上传文件批处理任务的结果
+    ### 获取上传文件批处理任务的结果
+    
+    获取已完成的上传文件批处理任务的详细结果。
+    
+    **参数说明:**
+    - **task_id**: 批处理任务的ID
+    
+    **返回示例:**
+    ```json
+    {
+        "task_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "results": [
+            {
+                "file_name": "file1.txt",
+                "algorithm": "sha256",
+                "hash_value": "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
+                "status": "success",
+                "error_message": null,
+                "processing_time": 0.0134
+            },
+            {
+                "file_name": "file2.txt",
+                "algorithm": "sha256",
+                "hash_value": "b591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146f",
+                "status": "success",
+                "error_message": null,
+                "processing_time": 0.0157
+            }
+        ],
+        "total_files": 2,
+        "success_count": 2,
+        "error_count": 0,
+        "total_processing_time": 0.0291
+    }
+    ```
+    
+    **可能的错误:**
+    - **404**: 任务未找到
+    - **400**: 任务尚未完成
+    - **500**: 任务结果不可用
     """
     if task_id not in upload_batch_tasks:
         raise HTTPException(status_code=404, detail=f"任务未找到: {task_id}")
@@ -587,7 +894,7 @@ async def get_upload_batch_results(task_id: str):
         total_processing_time=task.get("total_processing_time", 0)
     )
 
-@app.post("/api/v1/hash/verify", response_model=BatchVerifyResponse)
+@app.post("/api/v1/hash/verify", response_model=BatchVerifyResponse, tags=["哈希验证", "批量文件处理"])
 async def verify_file_hashes(
     files: List[UploadFile] = File(...),
     expected_hashes: str = Form(...),  # JSON格式的期望哈希值列表
@@ -595,8 +902,63 @@ async def verify_file_hashes(
     chunk_size: int = Form(4096)
 ):
     """
-    验证上传文件的哈希值是否与期望值匹配
-    expected_hashes参数格式: JSON字符串 [{"file_name": "example.txt", "expected_hash": "1234..."}]
+    ### 验证上传文件的哈希值是否与期望值匹配
+    
+    计算上传文件的哈希值并与预期值进行比较，验证文件完整性。
+    
+    **参数说明:**
+    - **files**: 要验证的文件列表
+    - **expected_hashes**: JSON格式的期望哈希值列表，格式为: `[{"file_name": "example.txt", "expected_hash": "1234..."}]`
+    - **algorithm**: 使用的哈希算法，默认为sha256
+    - **chunk_size**: 读取文件时的块大小（字节），默认为4096
+    
+    **示例请求:**
+    
+    上传文件example1.txt和example2.txt，同时提供expected_hashes参数：
+    ```json
+    [
+        {
+            "file_name": "example1.txt", 
+            "expected_hash": "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e"
+        },
+        {
+            "file_name": "example2.txt", 
+            "expected_hash": "b591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146f"
+        }
+    ]
+    ```
+    
+    **返回示例:**
+    ```json
+    {
+        "results": [
+            {
+                "file_name": "example1.txt",
+                "expected_hash": "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
+                "actual_hash": "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
+                "matched": true,
+                "algorithm": "sha256",
+                "processing_time": 0.0134
+            },
+            {
+                "file_name": "example2.txt",
+                "expected_hash": "b591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146f",
+                "actual_hash": "b591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146f",
+                "matched": true,
+                "algorithm": "sha256",
+                "processing_time": 0.0157
+            }
+        ],
+        "total_files": 2,
+        "match_count": 2,
+        "mismatch_count": 0,
+        "total_processing_time": 0.0291
+    }
+    ```
+    
+    **可能的错误:**
+    - **400**: 不支持的哈希算法、expected_hashes格式错误
+    - **500**: 验证文件哈希值时出错
     """
     if algorithm not in hashlib.algorithms_available:
         raise HTTPException(status_code=400, detail=f"不支持的哈希算法: {algorithm}")
