@@ -1,4 +1,4 @@
-name: Expose File‑Hash API via Cloudflare Tunnel
+name: 🚀 Expose File‑Hash API via Cloudflare Tunnel
 
 on:
   schedule:
@@ -19,23 +19,26 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Install Python deps
+      - name: 🚀 Install Python deps
         run: |
+          echo "🚀 Upgrading pip and installing FastAPI and dependencies"
           python -m pip install --upgrade pip
           pip install fastapi uvicorn python-multipart
 
-      - name: Install system packages & cloudflared
+      - name: 📦 Install system packages & cloudflared
         run: |
+          echo "📦 Updating apt and installing wget, jq"
           sudo apt-get update
           sudo apt-get install -y wget jq
+          echo "📦 Downloading cloudflared"
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O cloudflared
           chmod +x cloudflared
           sudo mv cloudflared /usr/local/bin/
-          cloudflared --version
+          cloudflared --version && echo "✅ cloudflared installed"
 
-      - name: Write Cloudflared config
+      - name: 🛠️ Write Cloudflared config
         run: |
-          echo "Generating ~/.cloudflared/config.yml"
+          echo "🛠️ Generating ~/.cloudflared/config.yml"
           mkdir -p ~/.cloudflared
           cat > ~/.cloudflared/config.yml <<EOF
           tunnel: ${{ env.TUNNEL_ID }}
@@ -44,28 +47,39 @@ jobs:
             - hostname: ${{ env.HOSTNAME }}
               path: /api/v1/hash/*
               service: http://localhost:8000
-            # 放行根路径 和 其它所有请求
+            # 放行根路径和其它所有请求
             - hostname: ${{ env.HOSTNAME }}
               path: /*
               service: http://localhost:8000
-            # 如果都不匹配，404
+            # 如果都不匹配，返回 404
             - service: http_status:404
           EOF
           echo "✅ Cloudflared ingress rules set"
 
-      - name: Start FastAPI in background
+      - name: 🚀 Start FastAPI in background
         run: |
+          echo "🚀 Starting FastAPI server on port 8000"
           nohup python main/file_hash_api_server.py & sleep 5
+          echo "✅ FastAPI should now be running"
 
-      - name: Run Cloudflare Tunnel
+      - name: 🌐 Run Cloudflare Tunnel
         run: |
+          echo "🌐 Launching cloudflared tunnel"
           nohup cloudflared tunnel run --token "${{ env.TUNNEL_TOKEN }}" "${{ env.TUNNEL_ID }}" & sleep 5
+          echo "✅ Tunnel established at https://${{ env.HOSTNAME }}"
 
-      - name: Wait for API health
+      - name: ⏳ Wait for API health
         run: |
+          echo "⏳ Checking API health..."
           for i in {1..12}; do
-            if curl -s -o /dev/null -w '%{http_code}' https://${{ env.HOSTNAME }}/api/v1/hash/algorithms | grep -q '^200$'; then
-              echo "✅ API healthy"
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://${{ env.HOSTNAME }}/)
+            if [ "$code" = "200" ]; then
+              echo "✅ [/$i] Root path healthy"
+              exit 0
+            fi
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://${{ env.HOSTNAME }}/api/v1/hash/algorithms)
+            if [ "$code" = "200" ]; then
+              echo "✅ [/$i] /api/v1/hash/algorithms healthy"
               exit 0
             fi
             echo "🔄 attempt $i; retrying in 5s"
@@ -73,20 +87,25 @@ jobs:
           done
           echo "❌ API failed to become healthy" && exit 1
 
-      - name: Cancel previous run
+      - name: 🗑️ Cancel previous run
         env:
           REPO: ${{ github.repository }}
         run: |
+          echo "🗑️ Cancelling previous workflow run (if any)"
           PREV=$(curl -s \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
             "https://api.github.com/repos/$REPO/actions/workflows/${{ github.workflow }}/runs?per_page=2" \
             | jq -r '.workflow_runs[1].id')
-          [ "$PREV" != "null" ] && \
+          if [ "$PREV" != "null" ]; then
             curl -X POST -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
-                 "https://api.github.com/repos/$REPO/actions/runs/$PREV/cancel" || echo "No previous run to cancel"
+                 "https://api.github.com/repos/$REPO/actions/runs/$PREV/cancel" \
+              && echo "✅ Previous run cancelled"
+          else
+            echo "⚠️ No previous run to cancel"
+          fi
 
-      - name: Keep runner alive
+      - name: 🙌 Keep runner alive
         run: |
-          echo "🚀 up at https://${{ env.HOSTNAME }}"
+          echo "🙌 Runner up at https://${{ env.HOSTNAME }} — sleeping to keep alive"
           while true; do sleep 60; done
