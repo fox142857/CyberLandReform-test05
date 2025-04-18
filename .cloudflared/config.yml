@@ -4,6 +4,6 @@ ingress:
     path: /api/v1/hash/*
     service: http://localhost:8000
   - hostname: file-hash-api.foxmaybe01001.dpdns.org
-    path: /
+    path: /*
     service: http://localhost:8000
   - service: http_status:404
