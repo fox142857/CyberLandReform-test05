@@ -1,9 +1,9 @@
-tunnel: your‑tunnel‑id
+tunnel: 5c870e43-089e-423f-9dff-c61ee45b7301
 ingress:
-  - hostname: your‑hostname
+  - hostname: file-hash-api.foxmaybe01001.dpdns.org
     path: /api/v1/hash/*
     service: http://localhost:8000
-  - hostname: your‑hostname
+  - hostname: file-hash-api.foxmaybe01001.dpdns.org
     path: /
     service: http://localhost:8000
   - service: http_status:404
