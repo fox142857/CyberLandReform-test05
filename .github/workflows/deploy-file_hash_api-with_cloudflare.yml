@@ -35,16 +35,23 @@ jobs:
 
       - name: Write Cloudflared config
         run: |
+          echo "Generating ~/.cloudflared/config.yml"
           mkdir -p ~/.cloudflared
           cat > ~/.cloudflared/config.yml <<EOF
           tunnel: ${{ env.TUNNEL_ID }}
-          # credentials-file not needed when using --token on run
-
           ingress:
+            # 放行所有 /api/v1/hash/* 请求
             - hostname: ${{ env.HOSTNAME }}
+              path: /api/v1/hash/*
               service: http://localhost:8000
+            # 放行根路径 和 其它所有请求
+            - hostname: ${{ env.HOSTNAME }}
+              path: /*
+              service: http://localhost:8000
+            # 如果都不匹配，404
             - service: http_status:404
           EOF
+          echo "✅ Cloudflared ingress rules set"
 
       - name: Start FastAPI in background
         run: |
