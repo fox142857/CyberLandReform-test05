@@ -1,0 +1,9 @@
+tunnel: your‑tunnel‑id
+ingress:
+  - hostname: your‑hostname
+    path: /api/v1/hash/*
+    service: http://localhost:8000
+  - hostname: your‑hostname
+    path: /
+    service: http://localhost:8000
+  - service: http_status:404
