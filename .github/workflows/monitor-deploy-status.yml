@@ -1,4 +1,4 @@
-name: Monitor Deploy FileHash API with ngrok Status
+name: Monitor Deploy FileHash API with cloudflare Status
 
 on:
   schedule:
