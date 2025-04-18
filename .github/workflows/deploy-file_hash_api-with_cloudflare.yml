@@ -40,7 +40,18 @@ jobs:
         run: |
           echo "🛠️ Generating ~/.cloudflared/config.yml"
           mkdir -p ~/.cloudflared
-          cp .cloudflared/config.yml ~/.cloudflared/config.yml
+          cat > ~/.cloudflared/config.yml <<EOF
+          tunnel: ${{ env.TUNNEL_ID }}
+          ingress:
+            - hostname: ${{ env.HOSTNAME }}
+              path: /api/v1/hash/*
+              service: http://localhost:8000
+            - hostname: ${{ env.HOSTNAME }}
+              path: /api/v1/hash
+              service: http://localhost:8000
+            # 如果都不匹配，返回 404
+            - service: http_status:404
+          EOF
           echo "✅ Cloudflared ingress rules set"
 
       - name: 🚀 Start FastAPI in background
