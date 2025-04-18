@@ -2,7 +2,6 @@ name: Expose File‑Hash API via Cloudflare Tunnel
 
 on:
   schedule:
-    # 每 5 小时的整点触发
     - cron: '0 */5 * * *'
   workflow_dispatch:
 
@@ -13,11 +12,9 @@ jobs:
       HOSTNAME: ${{ secrets.CLOUDFLARE_HOSTNAME }}
       TUNNEL_ID: ${{ secrets.CLOUDFLARE_TUNNEL_ID }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
@@ -30,8 +27,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y wget tar jq
+          # 下载 cloudflared
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.tgz -O cf.tgz
-          tar -xzf cf.tgz
+          # 尝试解压，忽略非致命错误
+          tar -xzf cf.tgz || echo "⚠️ tar exit code $? — ignoring"
+          # 确保 cloudflared 二进制存在
+          if [ ! -f cloudflared ]; then
+            echo "❌ cloudflared binary not found after tar; aborting"
+            exit 1
+          fi
           sudo mv cloudflared /usr/local/bin/
 
       - name: Install tunnel credentials via refresh token
@@ -51,7 +55,7 @@ jobs:
             - service: http_status:404
           EOF
 
-      - name: Start FastAPI server in background
+      - name: Start FastAPI in background
         run: |
           nohup python main/file_hash_api_server.py & sleep 5
 
@@ -61,33 +65,33 @@ jobs:
 
       - name: Wait for new API to be healthy
         run: |
-          echo "Waiting for API on https://${{ env.HOSTNAME }}/api/v1/hash/algorithms ..."
-          retries=0
-          until [[ "$(curl -s -o /dev/null -w '%{http_code}' https://${{ env.HOSTNAME }}/api/v1/hash/algorithms)" == "200" ]]; do
-            ((retries++))
-            if [ $retries -ge 12 ]; then
-              echo "⏱ Timeout waiting for API"; exit 1
+          echo "Waiting for API at https://${{ env.HOSTNAME }}/api/v1/hash/algorithms..."
+          for i in {1..12}; do
+            status=$(curl -s -o /dev/null -w '%{http_code}' https://${{ env.HOSTNAME }}/api/v1/hash/algorithms)
+            if [ "$status" = "200" ]; then
+              echo "✅ API is healthy"; break
             fi
+            echo "🔄 attempt $i, status $status; retrying in 5s"
             sleep 5
           done
-          echo "✅ New API is healthy."
 
-      - name: Cancel previous workflow run
+      - name: Cancel previous run
         env:
           REPO: ${{ github.repository }}
         run: |
-          echo "Fetching last 2 runs of this workflow..."
           PREV_ID=$(curl -s \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
-            "https://api.github.com/repos/$REPO/actions/workflows/deploy-file_hash_api-with_cloudflare.yml/runs?per_page=2" \
+            "https://api.github.com/repos/$REPO/actions/workflows/${{ github.workflow }}/runs?per_page=2" \
             | jq -r '.workflow_runs[1].id')
-          echo "Canceling previous run: $PREV_ID"
-          curl -X POST -s \
-            -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
-            "https://api.github.com/repos/$REPO/actions/runs/$PREV_ID/cancel"
+          if [ "$PREV_ID" != "null" ]; then
+            echo "Canceling previous run $PREV_ID"
+            curl -X POST \
+              -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+              "https://api.github.com/repos/$REPO/actions/runs/$PREV_ID/cancel"
+          fi
 
       - name: Keep runner alive
         run: |
-          echo "Tunnel and API are up! Access via https://${{ env.HOSTNAME }}"
+          echo "🚀 Tunnel & API up at https://${{ env.HOSTNAME }}"
           while true; do sleep 60; done
