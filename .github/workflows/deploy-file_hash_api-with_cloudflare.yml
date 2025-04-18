@@ -31,10 +31,12 @@ jobs:
           chmod +x cloudflared
           sudo mv cloudflared /usr/local/bin/
 
-      - name: Install tunnel credentials via refresh token
+      - name: Authenticate Tunnel (headless)
         run: |
+          export TUNNEL_TOKEN="${{ secrets.CF_INSTALL_TOKEN }}"
           mkdir -p ~/.cloudflared
-          cloudflared service install ${{ secrets.CF_INSTALL_TOKEN }}
+          # 通过 refresh token 登录，仅写入 ~/.cloudflared/<TUNNEL_ID>.json
+          cloudflared tunnel login --token "$TUNNEL_TOKEN"
 
       - name: Write Cloudflared config
         run: |
@@ -62,6 +64,7 @@ jobs:
             if curl -s -o /dev/null -w '%{http_code}' https://${{ env.HOSTNAME }}/api/v1/hash/algorithms | grep -q '^200$'; then
               echo "✅ API healthy"; break
             fi
+            echo "🔄 attempt $i; retrying in 5s"
             sleep 5
           done
 
@@ -69,13 +72,14 @@ jobs:
         env:
           REPO: ${{ github.repository }}
         run: |
-          PREV=$(curl -s -H "Accept: application/vnd.github.v3+json" \
+          PREV=$(curl -s \
+            -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
             "https://api.github.com/repos/$REPO/actions/workflows/${{ github.workflow }}/runs?per_page=2" \
             | jq -r '.workflow_runs[1].id')
           [ "$PREV" != "null" ] && \
             curl -X POST -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
-              "https://api.github.com/repos/$REPO/actions/runs/$PREV/cancel"
+                 "https://api.github.com/repos/$REPO/actions/runs/$PREV/cancel"
 
       - name: Keep runner alive
         run: |
